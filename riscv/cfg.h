@@ -39,7 +39,7 @@ class mem_cfg_t
 public:
   static bool check_if_supported(reg_t base, reg_t size);
 
-  mem_cfg_t(reg_t base, reg_t size);
+  mem_cfg_t(reg_t base, reg_t size, bool dense = false);
 
   reg_t get_base() const {
     return base;
@@ -49,6 +49,10 @@ public:
     return size;
   }
 
+  bool is_dense() const {
+    return dense;
+  }
+
   reg_t get_inclusive_end() const {
     return base + size - 1;
   }
@@ -56,6 +60,7 @@ public:
 private:
   reg_t base;
   reg_t size;
+  bool dense;
 };
 
 class cfg_t

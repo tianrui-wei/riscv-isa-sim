@@ -4,7 +4,7 @@
 #include "mmu.h"
 #include "decode.h"
 
-mem_cfg_t::mem_cfg_t(reg_t base, reg_t size) : base(base), size(size)
+mem_cfg_t::mem_cfg_t(reg_t base, reg_t size, bool dense) : base(base), size(size), dense(dense)
 {
   assert(mem_cfg_t::check_if_supported(base, size));
 }

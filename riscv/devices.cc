@@ -1,6 +1,7 @@
 #include "devices.h"
 #include "mmu.h"
 #include <stdexcept>
+#include <sys/mman.h>
 
 void bus_t::add_device(reg_t addr, abstract_device_t* dev)
 {
@@ -98,13 +99,18 @@ mem_t::mem_t(reg_t size)
     throw std::runtime_error("memory size must be a positive multiple of 4 KiB");
 }
 
-mem_t::~mem_t()
+sparse_mem_t::sparse_mem_t(reg_t size)
+  : mem_t(size)
+{
+}
+
+sparse_mem_t::~sparse_mem_t()
 {
   for (auto& entry : sparse_memory_map)
     free(entry.second);
 }
 
-bool mem_t::load_store(reg_t addr, size_t len, uint8_t* bytes, bool store)
+bool sparse_mem_t::load_store(reg_t addr, size_t len, uint8_t* bytes, bool store)
 {
   if (addr + len < addr || addr + len > sz)
     return false;
@@ -125,7 +131,7 @@ bool mem_t::load_store(reg_t addr, size_t len, uint8_t* bytes, bool store)
   return true;
 }
 
-char* mem_t::contents(reg_t addr) {
+char* sparse_mem_t::contents(reg_t addr) {
   reg_t ppn = addr >> PGSHIFT, pgoff = addr % PGSIZE;
   auto search = sparse_memory_map.find(ppn);
   if (search == sparse_memory_map.end()) {
@@ -138,7 +144,7 @@ char* mem_t::contents(reg_t addr) {
   return search->second + pgoff;
 }
 
-void mem_t::dump(std::ostream& o) {
+void sparse_mem_t::dump(std::ostream& o) {
   const char empty[PGSIZE] = {0};
   for (reg_t i = 0; i < sz; i += PGSIZE) {
     reg_t ppn = i >> PGSHIFT;
@@ -149,4 +155,41 @@ void mem_t::dump(std::ostream& o) {
       o.write(sparse_memory_map[ppn], PGSIZE);
     }
   }
+}
+
+dense_mem_t::dense_mem_t(reg_t size)
+  : mem_t(size)
+{
+  dense_memory = (char *) mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+  if (dense_memory == MAP_FAILED)
+    dense_memory = (char *) mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (dense_memory == MAP_FAILED)
+    throw std::runtime_error("failed to allocate memory");
+  madvise(dense_memory, sz, MADV_HUGEPAGE);
+}
+
+dense_mem_t::~dense_mem_t()
+{
+  munmap(dense_memory, sz);
+}
+
+bool dense_mem_t::load_store(reg_t addr, size_t len, uint8_t* bytes, bool store)
+{
+  if (unlikely(addr + len < addr || addr + len > sz))
+    return false;
+
+  if (store)
+    memcpy(this->dense_memory + addr, bytes, len);
+  else
+    memcpy(bytes, this->dense_memory + addr, len);
+
+  return true;
+}
+
+inline char* dense_mem_t::contents(reg_t addr) {
+  return this->dense_memory + addr;
+}
+
+void dense_mem_t::dump(std::ostream& o) {
+  o.write(dense_memory, sz);
 }

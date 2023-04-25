@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "cfg.h"
+#include "devices.h"
 #include "sim.h"
 #include "mmu.h"
 #include "arith.h"
@@ -29,6 +30,7 @@ static void help(int exit_code = 1)
   fprintf(stderr, "  -m<n>                 Provide <n> MiB of target memory [default 2048]\n");
   fprintf(stderr, "  -m<a:m,b:n,...>       Provide memory regions of size m and n bytes\n");
   fprintf(stderr, "                          at base addresses a and b (with 4 KiB alignment)\n");
+  fprintf(stderr, "                          optionally, use :d to indicate use a dense memory backend\n");
   fprintf(stderr, "  -d                    Interactive debug mode\n");
   fprintf(stderr, "  -g                    Track histogram of PCs\n");
   fprintf(stderr, "  -l                    Generate a log of execution\n");
@@ -196,6 +198,7 @@ merge_overlapping_memory_regions(std::vector<mem_cfg_t> mems)
 static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
 {
   std::vector<mem_cfg_t> res;
+  bool dense = false;
 
   // handle legacy mem argument
   char* p;
@@ -214,6 +217,12 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
     if (!*p || *p != ':')
       help();
     auto size = strtoull(p + 1, &p, 0);
+    if (*p && *p == ':') {
+      if (!*(p + 1))
+        help();
+      dense = *(p + 1) == 'd';
+      p  = p + 2;
+    }
 
     // page-align base and size
     auto base0 = base, size0 = size;
@@ -237,7 +246,7 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
 
     const unsigned long long max_allowed_pa = (1ull << MAX_PADDR_BITS) - 1ull;
     assert(max_allowed_pa <= std::numeric_limits<reg_t>::max());
-    mem_cfg_t mem_region(base, size);
+    mem_cfg_t mem_region(base, size, dense);
     if (mem_region.get_inclusive_end() > max_allowed_pa) {
       int bits_required = 64 - clz(mem_region.get_inclusive_end());
       fprintf(stderr, "Unsupported memory region "
@@ -270,7 +279,7 @@ static std::vector<std::pair<reg_t, mem_t*>> make_mems(const std::vector<mem_cfg
   std::vector<std::pair<reg_t, mem_t*>> mems;
   mems.reserve(layout.size());
   for (const auto &cfg : layout) {
-    mems.push_back(std::make_pair(cfg.get_base(), new mem_t(cfg.get_size())));
+    mems.push_back(std::make_pair(cfg.get_base(), cfg.is_dense() ? ((mem_t*) new dense_mem_t(cfg.get_size())) : ((mem_t *) new sparse_mem_t(cfg.get_size()))));
   }
   return mems;
 }
